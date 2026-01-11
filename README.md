@@ -1,10 +1,12 @@
 # CNN-RG-Fast_2D_Ising_model
 
 
-## 🤖 AI Disclosure
+### 🤖 AI Disclosure
 This project was developed with the assistance of **AI**. The Ai tool helped me with the programming.
 
 The core physical methodology (CNN-based Renormalization Group) and the neural network architecture remain the original research conceptualized by the author.
+
+## Introduction
 
 This repository implements a high-performance **Inverse Renormalization Group (IRG)** framework using Convolutional Neural Networks (CNN). By training a physical 3*3 kernel to capture the statistical characteristics of the 2D Ising model at the critical temperature $T_c$, this framework enables the rapid generation of ultra-large spin configurations (up to $9000^2$ and beyond) while strictly preserving long-range physical correlations.
 
