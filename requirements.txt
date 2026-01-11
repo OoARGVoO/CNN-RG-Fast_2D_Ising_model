@@ -1,0 +1,6 @@
+# Core Dependencies (Python libraries only)
+# Note: CUDA Toolkit should be installed separately on your OS
+torch>=2.0.0
+numpy>=1.21.0
+matplotlib>=3.5.0
+tqdm>=4.64.0

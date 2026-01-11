@@ -1,0 +1,31 @@
+# --- 数据与模型文件 (防止上传超过 100MB 的文件) ---
+*.pt
+*.pth
+*.npy
+*.bin
+*.pkl
+critical_samples.pt
+
+# --- Python 自动生成的缓存 ---
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# --- 编译器与环境设置 ---
+.venv/
+env/
+venv/
+.env
+.vscode/
+.idea/
+
+# --- 图片与展示 ---
+# 忽略根目录下的所有图片
+*.png
+*.jpg
+*.jpeg
+*.gif
+# 但绝对不要忽略 gallery 文件夹，确保它里面的图能上传
+!gallery/
+!gallery/*
