@@ -9,9 +9,9 @@ import time
 from matplotlib.colors import ListedColormap
 
 # ========== 物理常数与参数 ==========
-N = 1000
+N = 13500
 TEMP = 2.26918
-NUM_STEPS = 6000
+NUM_STEPS = 600000
 J_CONSTANT = 1.0
 K_CONSTANT = 1.0
 
