@@ -10,6 +10,8 @@ The core physical methodology (CNN-based Renormalization Group) and the neural n
 
 This repository implements a high-performance **Inverse Renormalization Group (IRG)** framework using Convolutional Neural Networks (CNN). By training a physical 3*3 kernel to capture the statistical characteristics of the 2D Ising model at the critical temperature $T_c$, this framework enables the rapid generation of ultra-large spin configurations (up to $9000^2$ and beyond) while strictly preserving long-range physical correlations.
 
+There are problems with the critical temp here, I used a "Colden" approach, which is clearly wrong, but I couldn't figure out the right way to do that. I'm quite ill these days... If you can help, pls e-mail me.
+
 ---
 
 ## 🌟 Methodology
