@@ -56,4 +56,4 @@ The lattice size grows cubically or quadratically, and 9000x9000 already pushes 
 
 This is a spin config it generates:
 
-![](gallery\ising_iterative_iter2.png)
+![](gallery/ising_iterative_iter2.png)
