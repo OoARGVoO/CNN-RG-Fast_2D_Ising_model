@@ -1,163 +1,154 @@
 import os
 
+# [2026-01-10] 指令：处理 OpenMP 运行时冲突
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
-import time
-import matplotlib.pyplot as plt
-from matplotlib.colors import ListedColormap
+from PIL import Image
+from datetime import datetime
 
-# ==========================================================
-# 1. 全局配置
-# ==========================================================
-CONFIG = {
-    "DEVICE": torch.device("cuda" if torch.cuda.is_available() else "cpu"),
-    "PARAM_FILE": "rg_model_b3_free_poly.pt",
+# ==========================================
+# --- 参数配置 ---
+# ==========================================
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+OUTPUT_DIR = r"E:\coding temp\TEST\scripts\RG_MultiStage_Results"
+KERNEL_FILE = r"E:\coding temp\TEST\scripts\full_conn_proj_k9_s3_2048_26_2_3.pt"
 
-    # 初始种子参数 (第一代)
-    "N_SEED": 1000,
-    "BETA_C": 0.44068679,
-    "SEED_STEPS": 3000,
+START_SIZE = 512
+STAGES = 3
+SCALE_FACTOR = 3
+BETA = 0.4406868
+SEED_MC_STEPS = 1000
+REFINE_MC_STEPS = 35
 
-    # 迭代放大配置
-    "N_ITERATIONS": 2,
-
-    # --- 手动设置每一层的弛豫步数 ---
-    "RECON_PASSES_LIST": [50,100],  # 退火需要足够的步数才有效果
-
-    # 退火配置
-    "BETA_START": 0.5,  # 初始高温 (打破块状结构)
-    "BETA_END": 10.0,  # 最终低温 (锁定物理纹理)
-
-    "STEP_SIZE": 0.3,
-    "OUTPUT_PREFIX": "ising_iterative"
-}
+if not os.path.exists(OUTPUT_DIR):
+    os.makedirs(OUTPUT_DIR)
 
 
-# ==========================================================
-# 2. 模型定义 (保持不变)
-# ==========================================================
-class FreePolyRGModel(nn.Module):
-    def __init__(self):
-        super(FreePolyRGModel, self).__init__()
-        self.kernel = nn.Parameter(torch.zeros(1, 1, 3, 3))
-        self.w1 = nn.Parameter(torch.tensor([0.0]))
-        self.w3 = nn.Parameter(torch.tensor([0.0]))
-        self.A = nn.Parameter(torch.tensor([0.0]))
+# ==========================================
+# --- 模型与工具 ---
+# ==========================================
+class FullConnectProjectionRG(nn.Module):
+    def __init__(self, k_size=9, s_factor=3):
+        super().__init__()
+        self.proj = nn.Conv2d(1, s_factor ** 2, k_size, padding=k_size // 2, bias=False)
+        self.ps = nn.PixelShuffle(s_factor)
+        self.w1 = nn.Parameter(torch.tensor([1.0]))
+        self.A = nn.Parameter(torch.tensor([1.0]))
+
+    def forward(self, x):
+        m = self.proj(x)
+        out = self.ps(m)
+        return torch.clamp(self.w1 * out, -self.A, self.A)
 
 
-# ==========================================================
-# 3. 核心功能模块
-# ==========================================================
-
-def get_physical_seed():
-    """生成第一代物理种子"""
-    n, beta_c = CONFIG["N_SEED"], CONFIG["BETA_C"]
-    s = torch.randint(0, 2, (n, n), device=CONFIG["DEVICE"], dtype=torch.float32) * 2 - 1
-    x, y = torch.meshgrid(torch.arange(n, device=CONFIG["DEVICE"]),
-                          torch.arange(n, device=CONFIG["DEVICE"]), indexing='ij')
-    mask_b = ((x + y) % 2 == 0)
-    mask_w = ~mask_b
-    print(f"🧬 [种子代] 正在生成 {n}x{n} 临界种子...")
-    for i in range(CONFIG["SEED_STEPS"]):
-        for mask in [mask_b, mask_w]:
-            neigh = torch.roll(s, 1, 0) + torch.roll(s, -1, 0) + torch.roll(s, 1, 1) + torch.roll(s, -1, 1)
-            dE = 2 * s * neigh
-            accept = (dE <= 0) | (torch.rand((n, n), device=CONFIG["DEVICE"]) < torch.exp(-dE * beta_c))
-            s[mask & accept] *= -1
-    return s.unsqueeze(0).unsqueeze(0)
+def checkerboard_mc(spin, beta, steps):
+    if steps <= 0: return spin
+    B, C, H, W = spin.shape
+    coords = torch.stack(torch.meshgrid(torch.arange(H, device=DEVICE), torch.arange(W, device=DEVICE), indexing='ij'))
+    mask_even = ((coords[0] + coords[1]) % 2 == 0).float().unsqueeze(0).unsqueeze(0)
+    for _ in range(steps):
+        for mask in [mask_even, 1.0 - mask_even]:
+            neighbors = (torch.roll(spin, 1, 2) + torch.roll(spin, -1, 2) +
+                         torch.roll(spin, 1, 3) + torch.roll(spin, -1, 3))
+            dE = 2.0 * spin * neighbors
+            prob = torch.exp(-beta * dE)
+            accept = (torch.rand(spin.shape, device=DEVICE) < prob).float()
+            spin = torch.where(mask > 0, torch.where(accept > 0, -spin, spin), spin)
+    return spin
 
 
-def iterate_reconstruct(field, model, iter_idx, num_passes):
-    """带退火策略的单次放大重构"""
-    _, _, h_in, w_in = field.shape
-    h_out, w_out = h_in * 3, w_in * 3
-    print(f"🚀 [迭代 {iter_idx + 1}] 重构: {h_in}x{w_in} -> {h_out}x{w_out} | 步数: {num_passes}")
-
+def get_physics_metrics(spin_tensor):
     with torch.no_grad():
-        # 1. 转置卷积上采样
-        s = F.conv_transpose2d(field, model.kernel, stride=3)
-
-        # --- 在投影后注入微小噪声，打破 3x3 的完全对称 ---
-        s = s + torch.randn_like(s) * 0.1
-
-        s = torch.clamp(model.w1 * s + model.w3 * torch.pow(s, 3), -model.A.item(), model.A.item())
-
-        x, y = torch.meshgrid(torch.arange(h_out, device=CONFIG["DEVICE"]),
-                              torch.arange(w_out, device=CONFIG["DEVICE"]), indexing='ij')
-        mask_b = ((x + y) % 2 == 0).unsqueeze(0).unsqueeze(0)
-        mask_w = ~mask_b
-        w1, w3, A = model.w1.item(), model.w3.item(), model.A.item()
-        step = CONFIG["STEP_SIZE"]
-
-        # 2. 退火 MCMC 演化
-        for p in range(num_passes):
-            # 线性插值计算当前 Beta (从 BETA_START 到 BETA_END)
-            alpha = p / max(1, num_passes - 1)
-            curr_beta = CONFIG["BETA_START"] * (1 - alpha) + CONFIG["BETA_END"] * alpha
-
-            for mask in [mask_b, mask_w]:
-                neigh = torch.roll(s, 1, 2) + torch.roll(s, -1, 2) + torch.roll(s, 1, 3) + torch.roll(s, -1, 3)
-                s_rand = (torch.rand_like(s) * 2 - 1) * step
-                s_new = torch.clamp(s + s_rand, -A, A)
-
-                dV = -0.5 * w1 * (s_new ** 2 - s ** 2) - 0.25 * w3 * (s_new ** 4 - s ** 4)
-                dJ = -(s_new - s) * neigh
-
-                # 使用当前退火温度对应的 Beta
-                accept = torch.rand_like(s) < torch.exp(-curr_beta * (dV + dJ))
-                s[mask & accept] = s_new[mask & accept]
-
-            if num_passes >= 50 and (p + 1) % 50 == 0:
-                print(f"   进度: {p + 1}/{num_passes} | 当前 Beta: {curr_beta:.2f}")
-
-    return torch.sign(s)
+        c10 = (spin_tensor * torch.roll(spin_tensor, 1, 2)).mean().item()
+        m_abs = torch.abs(spin_tensor.mean()).item()
+        m2 = (spin_tensor ** 2).mean()
+        m4 = (spin_tensor ** 4).mean()
+        binder = (1.0 - m4 / (3 * m2 ** 2 + 1e-8)).item()
+        deviation = abs(c10 - 0.7071) / 0.7071 * 100
+        return c10, m_abs, binder, deviation
 
 
-# ==========================================================
-# 4. 执行流水线
-# ==========================================================
+# ==========================================
+# --- 主流程 ---
+# ==========================================
+def main():
+    model = FullConnectProjectionRG().to(DEVICE)
+    if os.path.exists(KERNEL_FILE):
+        model.load_state_dict(torch.load(KERNEL_FILE, map_location=DEVICE))
+        print(f">>> 成功载入 RG 算子")
+    model.eval()
+
+    # 1. 生成种子
+    print(f">>> 正在生成种子...")
+    seed_spin = torch.where(torch.rand((1, 1, START_SIZE, START_SIZE), device=DEVICE) < 0.5, 1.0, -1.0)
+    seed_spin = checkerboard_mc(seed_spin, BETA, SEED_MC_STEPS)
+
+    current_spin = seed_spin.clone()
+    stage_inits = []  # 第一行图像
+    stage_refines = []  # 第二行图像
+    stage_metrics = []
+
+    stage_metrics.append(("Seed", *get_physics_metrics(seed_spin)))
+
+    # 2. 多级演化
+    for s in range(1, STAGES + 1):
+        print(f">>> 正在执行第 {s} 级超分辨率...")
+        with torch.no_grad():
+            continuous_out = model(current_spin)
+
+        # 直出
+        rg_init = torch.where(torch.rand_like(continuous_out) < (1.0 + continuous_out) / 2.0, 1.0, -1.0)
+        stage_inits.append(rg_init.clone())
+        stage_metrics.append((f"Stage {s} Init", *get_physics_metrics(rg_init)))
+
+        # 修复
+        current_spin = checkerboard_mc(rg_init, BETA, REFINE_MC_STEPS)
+        stage_refines.append(current_spin.clone())
+        stage_metrics.append((f"Stage {s} Refine", *get_physics_metrics(current_spin)))
+
+    # 3. 打印数据
+    print("\n" + "=" * 90)
+    print(f"{'阶段':<20} | {'c10':<12} | {'|M|':<12} | {'Binder':<10} | {'偏差'}")
+    print("-" * 90)
+    for m in stage_metrics:
+        print(f"{m[0]:<20} | {m[1]:.6f}     | {m[2]:.6f}     | {m[3]:.4f}   | {m[4]:.2f}%")
+    print("=" * 90)
+
+    # 4. 可视化 (统一缩放到最后一级大小以便完整展示)
+    print(">>> 正在合成完整图对比 (两行输出)...")
+    final_h, final_w = stage_refines[-1].shape[-2:]
+    # 限制显示尺寸防止过大 (如需物理原始图请调大此值，但 2048 比较适合查看)
+    VIS_SIZE = (2048, 2048)
+
+    def to_vis(t):
+        t_resized = nn.functional.interpolate(t, size=VIS_SIZE, mode='nearest')
+        return ((t_resized.squeeze().cpu().numpy() + 1) * 127.5).astype(np.uint8)
+
+    # 准备第一行: Seed + Inits
+    row1 = [to_vis(seed_spin)] + [to_vis(img) for img in stage_inits]
+    # 准备第二行: Seed + Refines (最终图在最后)
+    row2 = [to_vis(seed_spin)] + [to_vis(img) for img in stage_refines]
+
+    sep = np.zeros((VIS_SIZE[0], 20), dtype=np.uint8)  # 纵向间距
+    h_sep = np.zeros((20, (VIS_SIZE[1] + 20) * (STAGES + 1) - 20), dtype=np.uint8)  # 横向间距
+
+    # 拼接行
+    row1_combined = np.concatenate([np.concatenate([img, sep], axis=1) for img in row1[:-1]] + [row1[-1]], axis=1)
+    row2_combined = np.concatenate([np.concatenate([img, sep], axis=1) for img in row2[:-1]] + [row2[-1]], axis=1)
+
+    # 拼接两行
+    final_output = np.concatenate([row1_combined, h_sep, row2_combined], axis=0)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_path = os.path.join(OUTPUT_DIR, f"RG_FullComparison_{timestamp}.png")
+    Image.fromarray(final_output).save(save_path)
+
+    print(f"\n>>> 结果已保存: {save_path}")
+    print(">>> 布局: [第一行: 直出演化] / [第二行: 修复演化]")
+
+
 if __name__ == "__main__":
-    # --- 随机种子设定 (使用当前系统时间，确保每次不同) ---
-    random_seed = int(time.time() * 1000) % 100000
-    torch.manual_seed(random_seed)
-    torch.cuda.manual_seed_all(random_seed)
-    np.random.seed(random_seed)
-
-    # 允许非确定性算法以获得自然的随机演化
-    torch.backends.cudnn.deterministic = False
-    torch.backends.cudnn.benchmark = True
-
-    model = FreePolyRGModel().to(CONFIG["DEVICE"])
-    if os.path.exists(CONFIG["PARAM_FILE"]):
-        model.load_state_dict(torch.load(CONFIG["PARAM_FILE"]))
-        print(f"📂 已加载权重 | 随机种子: {random_seed}")
-    else:
-        print("❌ 错误: 未找到权重文件。")
-        exit()
-
-    start_total = time.time()
-    current_field = get_physical_seed()
-
-    # C. 递归迭代放大
-    for i in range(CONFIG["N_ITERATIONS"]):
-        current_passes = CONFIG["RECON_PASSES_LIST"][i]
-        current_field = iterate_reconstruct(current_field, model, i, current_passes)
-        torch.cuda.empty_cache()
-
-    final_res = current_field.squeeze().cpu().numpy()
-    print(f"\n✨ 迭代完成！总耗时: {time.time() - start_total:.2f}s")
-
-    custom_cmap = ListedColormap(['#93A5CB', '#F7A24F'])
-    plt.figure(figsize=(20, 20), dpi=300)
-    plt.imshow(final_res, cmap=custom_cmap, interpolation='nearest')
-    plt.axis('off')
-
-    # 保存文件名包含种子，方便区分
-    save_path = f"{CONFIG['OUTPUT_PREFIX']}_seed_{random_seed}.png"
-    plt.savefig(save_path, bbox_inches='tight', pad_inches=0, dpi=600)
-    print(f"🖼️ 图像已保存至: {save_path}")
-    plt.show()
+    main()

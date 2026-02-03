@@ -8,18 +8,34 @@ The core physical methodology (CNN-based Renormalization Group) and the neural n
 
 ## Introduction
 
-This repository implements a high-performance **Inverse Renormalization Group (IRG)** framework using Convolutional Neural Networks (CNN). By training a physical 3*3 kernel to capture the statistical characteristics of the 2D Ising model at the critical temperature $T_c$, this framework enables the rapid generation of ultra-large spin configurations (up to $9000^2$ and beyond) while strictly preserving long-range physical correlations.
+This repository implements a high-performance **Inverse Renormalization Group (IRG)** framework using Convolutional Neural Networks (CNN). By training a physical 9*9*9 kernel to capture the statistical characteristics of the 2D Ising model at the critical temperature $T_c$, this framework enables the rapid generation of ultra-large spin configurations (up to $9000^2$ and beyond) while strictly preserving physical authenticity.
 
-There are problems with the critical temp here, I used a "Colden" approach, which is clearly wrong, but I couldn't figure out the right way to do that. I'm quite ill these days... If you can help, pls e-mail me.
 
 ---
 
 ## 🌟 Methodology
 
-In statistical physics, the Renormalization Group (RG) is typically a "coarse-graining" process. This project reverses that flow:
-1. **Feature Lock-in**: Training a physical 3*3 kernel to fit multi-scale correlation functions at the critical point ($\beta_c \approx 0.4407$).
-2. **Scale Invariance**: Leveraging the fractal nature of the critical state to project small "seed" lattices into larger spatial scales.
-3. **Accelerated Reconstruction**: Using a parallelized checkerboard Metropolis algorithm to finalize configurations at high speed, bypassing "Critical Slowing Down." It uses a very low temp to "colden" the spin config, to reduce high-frequency noise. However, this does mean that the spins gets a bit colder.
+The core of this project lies in reversing the traditional Renormalization Group (RG) flow. While standard RG coarse-grains a system to extract long-range behavior, our "Neural RG" performs an inverse mapping to generate high-resolution critical configurations.
+
+### 1. Neural Inverse-RG Operator
+We define a generative operator based on a deep convolutional architecture designed to learn the local conditional probability of spins:
+* **Kernel Projection**: A trained $9 \times 9$ convolutional kernel captures the multi-scale correlation functions inherent at the critical point ($\beta_c \approx 0.4407$).
+* **Sub-pixel Reconstruction**: Utilizing a **PixelShuffle** layer, the model projects the latent information from a coarse grid into a $3 \times 3$ sub-lattice, effectively "filling in" the ultraviolet (UV) details lost during coarse-graining.
+
+### 2. Preservation of the Critical Fixed Point
+The methodology relies on the **Scale Invariance** of the 2D Ising model at criticality:
+* **Fractal Projection**: By leveraging the self-similar nature of the system, the model can recursively apply the same RG kernel across multiple stages ($L \to 3L \to 9L \dots$) without drifting away from the critical manifold.
+* **Nearest-Neighbor Constraint**: The kernel is optimized to ensure that the renormalized energy remains dominated by the nearest-neighbor term, preserving the Hamiltonian's structure across scales.
+
+### 3. Hybrid Stochastic Evolution
+To ensure the generated configurations are thermodynamically consistent, we employ a dual-path approach:
+* **Neural Initialization**: The model performs a "Neural Direct" upsampling, providing a high-quality initialization that already approximates the target energy density ($c_{10} \approx 0.7071$).
+* **Checkerboard Refinement**: A parallelized, high-speed **Checkerboard Metropolis** algorithm is applied for a minimal number of steps (Refine MC). This step acts as a physical "fine-tuner" to relax any local high-frequency artifacts introduced by the neural projection.
+
+
+
+### 4. Recursive Multi-Scaling
+The process is executed in discrete stages, allowing for the generation of massive lattices (e.g., $13824^2$) from small, well-equilibrated seeds. This bypasses the critical slowing down typically encountered in traditional large-scale Monte Carlo simulations.
 
 ---
 
@@ -27,35 +43,48 @@ In statistical physics, the Renormalization Group (RG) is typically a "coarse-gr
 
 According to the pipeline shown in the repository:
 
-* **`data_collecting.py`**: Generates and saves raw Ising samples at the critical temperature. Outputs `critical_samples.pt`.
-* **`kernel_training.py`**: Optimizes the CNN kernel by fitting the multi-scale correlation functions of the training data.
+* **`data_collecting.py`**: Generates and saves raw Ising samples at the critical temperature. 
+* **`batching.py`**: Batches up the data
+* **`kernel_training_pixel_shuffle.py`**: Optimizes the CNN kernel by fitting the multi-scale correlation functions of the training data.
 * **`fast_generating_single_stage.py`**: Performs a single $3 \times$ upscaling (e.g., $1000^2 \rightarrow 3000^2$).
 * **`fast_generating_multi_stage.py`**: Executes recursive iterations for ultra-high resolution (e.g., $1000^2 \rightarrow 9000^2$ or larger).
 * **`normal_fast_2d_Ising.py`**: A standard high-speed Ising simulator used for baseline comparison and seed generation.
-* **`rg_model_b3_free_poly.pt` / `.json`**: The trained weights and configuration of the physical model.
+
 
 ---
 
+
 ## 🚀 Quick Start
 
-### 1. Requirements
-Install the necessary dependencies:
+### 1. Prerequisites
+Ensure you have the following dependencies installed:
+* Python 3.8+
+* PyTorch
+* NumPy
+* Pillow (PIL)
 
-torch numpy matplotlib
+### 2. Environment Configuration
+To prevent OpenMP runtime conflicts during parallelized Monte Carlo steps, the following environment variable is required at the beginning of your execution script:
+```python
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+```
 
-Cuda is also needed. 
+### 3. Model Weight
+Ensure the trained RG kernel is placed in the models/ directory. The current multi-stage script is configured to use: `models/full_conn_proj_k9_s3_2048_26_2_3.pt`. Or you kan train the kernel of your own. You can run the `kernel_training_pixel_shuffle.py`
 
-### 2. Standard workflow
+### 4. Running the Multi-Stage Generation
+Run generating scripts to generate high-resolution configurations.
 
-1. Generating samples: Run `data_collecting.py` to collect Ising configurations at the theoretical critical temperature.
 
-2. Model training: Run `kernel_training.py` to train the 3*3 kernel.
 
-3. Generating new Ising spin configurations: Run `fast_generating_multi_stage.py` or `fast_generating_single_stage.py` . Change the paramiters in these two codes to adjust the size/color/... of the spin config graph.
+### 5. Interpreting Results
+The script will output a comparison gallery in the `gallery/` folder and a physics report in the console.Target Metric: The core validation is to ensure the c10 (Nearest-Neighbor Energy) remains consistently near the Onsager solution ($\approx 0.7071$) across all scales.Visualization:Top Row: Raw Neural RG output (UV-projections).Bottom Row: Physically refined configurations (Final output).
+
 
 ## VRAM (Video RAM) warning: 
 The lattice size grows cubically or quadratically, and 9000x9000 already pushes the limits of many consumer GPUs.
 
 This is a spin config it generates:
 
-![](gallery/ising_iterative_iter2.png)
+![](gallery\RG_FullComparison_20260203_170516.png)
