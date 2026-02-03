@@ -8,7 +8,7 @@ The core physical methodology (CNN-based Renormalization Group) and the neural n
 
 ## Introduction
 
-This repository implements a high-performance **Inverse Renormalization Group (IRG)** framework using Convolutional Neural Networks (CNN). By training a physical 9*9*9 kernel to capture the statistical characteristics of the 2D Ising model at the critical temperature $T_c$, this framework enables the rapid generation of ultra-large spin configurations (up to $9000^2$ and beyond) while strictly preserving physical authenticity.
+This repository implements a high-performance **Inverse Renormalization Group (IRG)** framework using Convolutional Neural Networks (CNN). By training a physical 9*9*9 kernel to capture the statistical characteristics of the 2D Ising model at the critical temperature $T_c$, this framework enables the rapid generation of ultra-large spin configurations (up to $9000^2$ and beyond) while preserving physical authenticity.
 
 
 ---
@@ -87,4 +87,9 @@ The lattice size grows cubically or quadratically, and 9000x9000 already pushes 
 
 This is a spin config it generates:
 
-![](gallery\RG_FullComparison_20260203_170516.png)
+![If you see this, it means that the image has failed to load. Please visit the gallary!](gallery\RG_FullComparison_20260203_184100.png)
+
+The measured correlation function $G(r)$ demonstrates a pretty good power-law decay consistent with the theoretical exponent $\eta=0.25$ over two orders of magnitude ($r \in [1, 500]$). This verifies that our NRG operator, trained with nearest-neighbor Hamiltonian constraints, effectively preserves the critical manifold throughout the multi-stage upsampling process. The deviation at $r > 10^3$ characterizes the finite correlation length under the current refinement steps.
+
+
+![If you see this, it means that the image has failed to load. Please visit the gallary!](gallery\aea2457be29eaf7c539efd94f56a4600.png)
