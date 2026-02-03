@@ -92,4 +92,4 @@ This is a spin config it generates:
 The measured correlation function $G(r)$ demonstrates a pretty good power-law decay consistent with the theoretical exponent $\eta=0.25$ over two orders of magnitude ($r \in [1, 500]$). This verifies that our NRG operator, trained with nearest-neighbor Hamiltonian constraints, effectively preserves the critical manifold throughout the multi-stage upsampling process. The deviation at $r > 10^3$ characterizes the finite correlation length under the current refinement steps.
 
 
-![If you see this, it means that the image has failed to load. Please visit the gallary!](gallery/aea2457be29eaf7c539efd94f56a4600.pngg)
+![If you see this, it means that the image has failed to load. Please visit the gallary!](gallery/aea2457be29eaf7c539efd94f56a4600.png)
