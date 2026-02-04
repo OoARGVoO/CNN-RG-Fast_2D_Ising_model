@@ -56,6 +56,7 @@ According to the pipeline shown in the repository:
 * **`fast_generating_multi_stage.py`**: Executes recursive iterations for ultra-high resolution (e.g., $1000^2 \rightarrow 9000^2$ or larger).
 * **`normal_fast_2d_Ising.py`**: A standard high-speed Ising simulator used for baseline comparison and seed generation.
 
+* **`multi_stage_comparasion.py`**: Generate images like the first one. 
 
 ---
 
