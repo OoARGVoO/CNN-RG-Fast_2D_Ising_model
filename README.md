@@ -10,6 +10,8 @@ The core physical methodology (CNN-based Renormalization Group) and the neural n
 
 **Long story short: Using a bunch of 2048*2048 Ising model data, I trained a kernel that can do coarse-graining while forcing the engergy of the model tightly to nearest neighbor term, so that after graining, the spins are still a simple nearest-neighbor ising model. It makes it possiible to train a small spin congfig as a seed, and then using the kernel to generate large lattice while preserving the physical authenticity.**
 
+![If you see this, it means that the image has failed to load. Please visit the gallary!](gallery/RG_Tracking_Evolution_20260204_123018.png)
+
 This repository implements a high-performance **Inverse Renormalization Group (IRG)** framework using Convolutional Neural Networks (CNN). By training a physical 9 by 9 by 9 kernel to capture the statistical characteristics of the 2D Ising model at the critical temperature $T_c$, this framework enables the rapid generation of ultra-large spin configurations (up to $9000^2$ and beyond) while preserving physical authenticity.
 
 
