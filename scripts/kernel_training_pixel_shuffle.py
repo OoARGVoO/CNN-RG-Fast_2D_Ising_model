@@ -94,7 +94,7 @@ def run_training():
         c10, r21 = get_correlations(pred)
         l_phys = torch.pow(c10 - target_c10, 2) * 5000.0 + torch.pow(r21 - target_r21, 2) * 0.0
         l_pixel = nn.functional.mse_loss(pred, target)
-        return l_phys + l_pixel * 0, c10, r21
+        return l_phys + l_pixel * 1, c10, r21
 
     try:
         from tqdm import trange
