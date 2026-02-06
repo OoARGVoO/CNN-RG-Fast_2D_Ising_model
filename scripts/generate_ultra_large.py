@@ -1,23 +1,13 @@
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-import gc  # 导入垃圾回收机制
+import gc 
 import torch
 import torch.nn as nn
 import numpy as np
 from PIL import Image
 from datetime import datetime
 import time
-
-# [2026-01-10] 指令：处理 OpenMP 运行时冲突
-
-
-# 必须添加：解除 PIL 的 1.7 亿像素限制
 Image.MAX_IMAGE_PIXELS = None
-
-
-# ==========================================
-# --- 视觉艺术与基础配置 ---
-# ==========================================
 def hex_to_rgb(hex_str):
     hex_str = hex_str.lstrip('#')
     return tuple(int(hex_str[i:i + 2], 16) for i in (0, 2, 4))
@@ -44,16 +34,10 @@ SCALE_FACTOR = 3
 BETA = 0.4406868
 SEED_MC_STEPS = 1000
 REFINE_STEPS_LIST = [20, 35, 50, 75]
-
-# 16GB 显存优化参数
 MC_TILE_SIZE = 4096
 INFER_TILE_SIZE = 8192
 PAD = 24
 
-
-# ==========================================
-# --- 核心算子：分块 MC ---
-# ==========================================
 def checkerboard_mc(spin, beta, steps):
     if steps <= 0: return spin
     if spin.dtype != torch.int8:
@@ -93,20 +77,10 @@ def checkerboard_mc(spin, beta, steps):
             print(f"   [MC Progress] Step {step + 1}/{steps} | Time/Step: {elapsed:.2f}s")
     return spin
 
-
-# ==========================================
-# --- 内存优化版分块推理 + 投影 ---
-# ==========================================
 @torch.inference_mode()
 def tiled_predict_and_project(model, x, tile_size, pad, s_factor):
-    """
-    [2026-02-03 优化]
-    直接在 GPU 内完成投影，返回 int8 结果。
-    解决 L=124416 时 float32 导致的内存溢出问题。
-    """
     B, C, H, W = x.shape
     out_h, out_w = H * s_factor, W * s_factor
-    # 直接在 CPU 申请 int8 空间 (约 14.4GB)
     output = torch.zeros((B, C, out_h, out_w), dtype=torch.int8, device='cpu')
 
     x_padded = torch.cat([x[:, :, -pad:], x, x[:, :, :pad]], dim=2)
@@ -122,18 +96,13 @@ def tiled_predict_and_project(model, x, tile_size, pad, s_factor):
         for j in range(0, W, tile_size):
             i_start, i_end = i, min(i + tile_size, H)
             j_start, j_end = j, min(j + tile_size, W)
-
-            # 1. 送入 GPU 进行卷积
             tile_in = x_padded[:, :, i:i_end + 2 * pad, j:j_end + 2 * pad].to(DEVICE).float()
             tile_out = model(tile_in)
 
-            # 2. 在 GPU 上直接计算投影概率 P = (1 + phi) / 2
             probs = (1.0 + tile_out) / 2.0
             projected_tile = torch.where(torch.rand_like(probs) < probs,
                                          torch.tensor(1, dtype=torch.int8, device=DEVICE),
                                          torch.tensor(-1, dtype=torch.int8, device=DEVICE))
-
-            # 3. 裁剪并存回 CPU
             cut = pad * s_factor
             output[:, :, i * s_factor:i_end * s_factor, j * s_factor:j_end * s_factor] = \
                 projected_tile[:, :, cut:-cut, cut:-cut].cpu()
@@ -147,10 +116,6 @@ def tiled_predict_and_project(model, x, tile_size, pad, s_factor):
 
     return output
 
-
-# ==========================================
-# --- 模型与主流程 ---
-# ==========================================
 class FullConnectProjectionRG(nn.Module):
     def __init__(self, k_size=9, s_factor=3):
         super().__init__()
@@ -177,21 +142,14 @@ def main():
         model.load_state_dict(torch.load(KERNEL_FILE, map_location=DEVICE))
         print(f">>> [System] 成功载入算子")
     model.eval()
-
-    # 1. 种子
     current_spin = torch.where(torch.rand((1, 1, START_SIZE, START_SIZE)) < 0.5,
                                torch.tensor(1, dtype=torch.int8),
                                torch.tensor(-1, dtype=torch.int8))
     current_spin = checkerboard_mc(current_spin, BETA, SEED_MC_STEPS)
-
-    # 2. 演化
     for s in range(1, STAGES + 1):
         steps = REFINE_STEPS_LIST[s - 1]
         target_l = current_spin.shape[-1] * SCALE_FACTOR
         print(f"\n--- [Stage {s}/{STAGES}] L={target_l} ---")
-
-        # [关键改动] 直接生成投影后的 int8 自旋
-        # 修改后：加上 .clone() 彻底切断与推理模式的联系
         rg_init = tiled_predict_and_project(model, current_spin, INFER_TILE_SIZE, PAD, SCALE_FACTOR).clone()
 
         del current_spin
@@ -202,8 +160,6 @@ def main():
 
         del rg_init
         gc.collect()
-
-    # 保存配置
     final_l = current_spin.shape[-1]
     config_path = os.path.join(OUTPUT_DIR, f"SpinConfig_L{final_l}_{timestamp}.npy")
     print(f"\n>>> 导出配置数据 (约 {final_l ** 2 / (1024 ** 3):.2f} GB)...")

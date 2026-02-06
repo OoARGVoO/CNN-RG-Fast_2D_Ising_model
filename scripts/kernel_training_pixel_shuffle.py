@@ -4,13 +4,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-
-# [2026-02-03] 遵照记忆指令：在 import os 下直接加上环境设置
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-# ==========================================
-# --- 核心可调参数 ---
-# ==========================================
 KERNEL_SIZE = 9
 SCALE_FACTOR = 3
 BATCH_SIZE = 8
@@ -24,11 +19,6 @@ T_MAX = STEPS
 
 DATA_DIR = r"E:\coding temp\TEST\scripts\ising_data2048_batched"
 PARAM_FILE = f"full_conn_proj_k{KERNEL_SIZE}_s{SCALE_FACTOR}_2048_26_2_3.pt"
-
-
-# ==========================================
-# --- 模型定义 ---
-# ==========================================
 class FullConnectProjectionRG(nn.Module):
     def __init__(self, k_size, s_factor):
         super().__init__()
@@ -62,11 +52,6 @@ def get_correlations(field):
     c10 = corr(1, 0) + 1e-8
     r21 = corr(1, 1) / c10
     return c10, r21
-
-
-# ==========================================
-# --- 训练主程序 ---
-# ==========================================
 def run_training():
     files = glob.glob(os.path.join(DATA_DIR, "*.pt"))
     if not files: return
@@ -87,8 +72,6 @@ def run_training():
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=T_MAX, eta_min=LR_MIN)
 
     target_c10, target_r21 = 0.7066, 0.8999
-
-    # --- Line Search 辅助函数 ---
     def calc_loss(m, inp, target):
         pred = m(inp)
         c10, r21 = get_correlations(pred)
@@ -114,29 +97,17 @@ def run_training():
 
             high_res_target = torch.cat(batch_high_res, dim=0)
             low_res_input = nn.functional.avg_pool2d(high_res_target, SCALE_FACTOR)
-
-            # 1. 计算当前 Loss 并反向传播获取梯度
             optimizer.zero_grad()
             current_loss, c10, r21 = calc_loss(model, low_res_input, high_res_target)
             current_loss.backward()
-
-            # 2. --- Line Search 核心逻辑 ---
-            # 备份当前参数
             backup_params = [p.data.clone() for p in model.parameters()]
 
-            # 尝试步进
             optimizer.step()
-
-            # 检查更新后的 Loss
             with torch.no_grad():
                 new_loss, _, _ = calc_loss(model, low_res_input, high_res_target)
-
-            # 如果新 Loss 变大（说明步子迈大了），则回退
             if new_loss > current_loss:
                 for p, b_p in zip(model.parameters(), backup_params):
                     p.data.copy_(b_p)
-                # 可以在此处适当调低下一轮的学习率（可选）
-            # -------------------------------
 
             scheduler.step()
 

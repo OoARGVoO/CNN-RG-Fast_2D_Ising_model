@@ -1,16 +1,11 @@
 # CNN-RG-Fast_2D_Ising_model
 
 
-### 🤖 AI Disclosure
-This project was developed with the assistance of **AI**. The Ai tool helped me with the programming.
-
-The core physical methodology (CNN-based Renormalization Group) and the neural network architecture remain the original research conceptualized by the author.
-
 ## Introduction
 
 ### **Long story short:**
 
- ** Using a bunch of 2048*2048 Ising model data, I trained a kernel that can do coarse-graining while forcing the engergy of the model tightly to nearest neighbor term, so that after graining, the spins are still a simple nearest-neighbor ising model. It makes it possiible to train a small spin congfig as a seed, and then using the kernel to generate large lattice while preserving the physical authenticity in a stunning speed. **
+ ** Using a bunch of 2048*2048 Ising model data, I trained a kernel that can do reverse-RG while forcing the engergy of the model tightly to nearest neighbor term, so that after reverse-RG, the spins are still a simple nearest-neighbor ising model. It makes it possiible to train a small spin congfig as a seed, and then using the kernel to generate large lattice while preserving the physical authenticity in a stunning speed. **
 
 ![If you see this, it means that the image has failed to load. Please visit the gallary!](gallery/RG_Tracking_Evolution_20260204_123018.png)
 

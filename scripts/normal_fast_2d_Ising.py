@@ -8,7 +8,6 @@ import matplotlib.pyplot as plt
 import time
 from matplotlib.colors import ListedColormap
 
-# ========== 物理常数与参数 ==========
 N = 13500
 TEMP = 2.26918
 NUM_STEPS = 600000
@@ -71,7 +70,7 @@ class IsingGPU:
 
         output_data = self.spins.cpu()
         torch.save(output_data, filename)
-        print(f"✅ 最终自旋配置已保存至: {filename}")
+        print(f"最终自旋配置已保存至: {filename}")
 
     def plot_result(self):
         plt.figure(figsize=(15, 5))
@@ -91,18 +90,10 @@ class IsingGPU:
         plt.tight_layout()
         plt.show()
 
-
-# ========== 执行脚本 ==========
 if __name__ == "__main__":
     sim = IsingGPU(n=N, temp=TEMP)
     duration = sim.run_simulation(steps=NUM_STEPS)
-
-    # 打印最终统计
     final_mag = torch.mean(sim.spins).item()
     print(f"最终平均磁化强度: {final_mag:.6f}")
-
-    # 保存数据
     sim.save_config("final_spin_config_1000.pt")
-
-    # 显示图像
     sim.plot_result()
